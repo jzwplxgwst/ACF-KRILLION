@@ -1,7 +1,7 @@
 // Krillion Puffer Party: a join-code, turn-based hot-potato trivia game with rarity scoring and lives. No dependencies: run `node server.js`.
 const http = require("http"), fs = require("fs"), path = require("path"), os = require("os"), crypto = require("crypto");
 let PORT = Number(process.env.PORT) || 80; // port 80 gives a short join link; falls back to 3000 if 80 is busy
-const MAX_TEAMS = 6, TURN_SECONDS = 15, START_LIVES = 3; // each player gets TURN_SECONDS to name an unused answer
+const MAX_TEAMS = 6, TURN_SECONDS = 15, START_LIVES = 2, BREAK_SECONDS = 10, MAX_STRIKES = 2; // MAX_STRIKES: hearts lost (by anyone) that end a question // each player gets TURN_SECONDS to name an unused answer
 const PUB = path.join(__dirname, "public");
 const load = () => JSON.parse(fs.readFileSync(path.join(__dirname, "questions.json"), "utf8")); // re-read for each new room
 const rooms = new Map();
@@ -34,12 +34,15 @@ function newCode() {
 }
 function view(r) {
   const inQ = r.phase === "question" || r.phase === "reveal", q = inQ ? r.data.questions[r.q] : null;
+  // scores are hidden during the last question and its break; the final screen reveals them
+  const hide = inQ && r.q === r.data.questions.length - 1, hp = p => hide ? null : p;
   return {
-    now: Date.now(), code: r.code, phase: r.phase, q: r.q, total: r.data.questions.length, tiers: r.data.tiers,
+    scoresHidden: hide, finalAt: r.finalAt, now: Date.now(), code: r.code, phase: r.phase, q: r.q, total: r.data.questions.length, tiers: r.data.tiers,
     prompt: q ? q.prompt : null, endsAt: r.endsAt, turnMs: TURN_SECONDS * 1000, turn: r.turn, turnN: r.turnN,
-    maxLives: START_LIVES, left: q ? q.answers.length - r.used.length : 0,
-    used: r.used.map(u => u.pub), last: r.last, results: r.results, endReason: r.endReason,
-    teams: [...r.teams.values()].map(t => ({ id: t.id, name: t.name, score: t.score, lives: t.lives, out: t.out })),
+    maxLives: START_LIVES, breakMs: BREAK_SECONDS * 1000, left: q ? q.answers.length - r.used.length : 0,
+    used: r.used.map(u => ({ ...u.pub, points: hp(u.pub.points) })), last: r.last && { ...r.last, points: hp(r.last.points) },
+    results: r.results.map(x => ({ ...x, points: hp(x.points) })), endReason: r.endReason,
+    teams: [...r.teams.values()].map(t => ({ id: t.id, name: t.name, score: hp(t.score), lives: t.lives, out: t.out })),
   };
 }
 function push(r) { const m = `data: ${JSON.stringify(view(r))}\n\n`; for (const c of r.clients) c.write(m); }
@@ -57,7 +60,7 @@ function startTurn(r) {
   push(r);
 }
 function startQuestion(r) {
-  r.phase = "question"; r.used = []; r.results = []; r.last = null; r.endReason = null;
+  r.phase = "question"; r.used = []; r.results = []; r.last = null; r.endReason = null; r.strikes = 0;
   const cur = r.teams.get(r.turn);
   if (!cur || cur.lives <= 0) r.turn = nextAlive(r, null).id; // otherwise the rotation just carries on
   startTurn(r);
@@ -70,9 +73,17 @@ function reveal(r, reason = "skip") { // question over (every answer found, or h
     const u = r.used.find(u => u.idx === i), tier = r.data.tiers[a.tier];
     return { text: a.text, tier: a.tier, label: tier.label, points: tier.points, by: u ? u.by : null };
   });
-  r.endReason = reason; r.phase = "reveal"; r.endsAt = 0; push(r);
+  r.endReason = reason; r.phase = "reveal";
+  r.endsAt = Date.now() + BREAK_SECONDS * 1000; // "get ready" countdown, then the next question starts by itself
+  r.timer = setTimeout(() => nextQuestion(r), BREAK_SECONDS * 1000);
+  push(r);
 }
-function finish(r) { clearTimeout(r.timer); r.phase = "final"; r.endsAt = 0; push(r); }
+function nextQuestion(r) {
+  if (r.phase !== "reveal") return;
+  clearTimeout(r.timer);
+  if (r.q + 1 < r.data.questions.length) { r.q++; startQuestion(r); } else finish(r);
+}
+function finish(r) { clearTimeout(r.timer); r.phase = "final"; r.endsAt = 0; r.finalAt = Date.now(); push(r); }
 // last player standing wins (with a single player, the game runs until they are out)
 function checkOver(r) {
   const n = alive(r).length;
@@ -86,7 +97,10 @@ function timeout(r) {
   t.lives--;
   if (t.lives <= 0) t.out = ++r.outN;
   r.last = { teamId: t.id, name: t.name, kind: "timeout", text: "", label: t.lives > 0 ? "Out of time" : "Eliminated", points: 0, tier: null };
+  r.strikes++;
   if (checkOver(r)) return;
+  // MAX_STRIKES hearts lost in one question: it ends, next player opens the next one
+  if (r.strikes >= MAX_STRIKES) { r.turn = nextAlive(r, r.turn).id; return reveal(r, "strikes"); }
   // a life was lost with more than half the answers already used: the question ends, next player opens the next one
   if (r.used.length * 2 > r.data.questions[r.q].answers.length) { r.turn = nextAlive(r, r.turn).id; return reveal(r, "half"); }
   advance(r);
@@ -117,7 +131,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === "/api/create") {
       let data; try { data = load(); } catch (e) { return send(res, 500, { error: "questions.json is invalid: " + e.message }); }
       const r = { code: newCode(), hostKey: crypto.randomBytes(8).toString("hex"), data, phase: "lobby", q: -1,
-        teams: new Map(), used: [], results: [], turn: null, turnN: 0, last: null, endReason: null, outN: 0, startN: 0, endsAt: 0, clients: new Set(), timer: null };
+        teams: new Map(), used: [], results: [], turn: null, turnN: 0, strikes: 0, finalAt: 0, last: null, endReason: null, outN: 0, startN: 0, endsAt: 0, clients: new Set(), timer: null };
       rooms.set(r.code, r);
       return send(res, 200, { code: r.code, hostKey: r.hostKey, urls: lanUrls() });
     }
@@ -155,9 +169,7 @@ const server = http.createServer(async (req, res) => {
       if (b.hostKey !== r.hostKey) return send(res, 403, { error: "Not the host." });
       if (b.action === "start" && r.phase === "lobby" && r.teams.size) { r.q = 0; r.startN = r.teams.size; startQuestion(r); }
       else if (b.action === "reveal") reveal(r);
-      else if (b.action === "next" && r.phase === "reveal") {
-        if (r.q + 1 < r.data.questions.length) { r.q++; startQuestion(r); } else { r.phase = "final"; push(r); }
-      }
+      else if (b.action === "next") nextQuestion(r); // host can skip the countdown
       return send(res, 200, { ok: true });
     }
     return send(res, 404, { error: "Unknown endpoint" });

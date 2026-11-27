@@ -18,10 +18,18 @@ function puffer(color = "#ffb020", cls = "") {
 }
 const teamColor = (s, id) => PUFFER_COLORS[[...s.teams].findIndex(t => t.id === id) % PUFFER_COLORS.length] || PUFFER_COLORS[0];
 // Drives the center puffer from the turn countdown: grows, shakes and reddens near zero. Resets every turn.
+let _fs = -1;
 function tickPuffer(state, skew) {
+  if (!state) return;
   const el = document.getElementById("hot"), t = document.getElementById("t");
-  if (!state || state.phase !== "question") return;
   const left = Math.max(0, state.endsAt - (Date.now() + skew));
+  if (state.phase === "final") { // drives the suspense reveal: re-render whenever the step changes
+    const st = finalInfo(state, skew).step;
+    if (st !== _fs) { _fs = st; render(); }
+    return;
+  }
+  if (state.phase === "reveal") { if (t) t.textContent = Math.ceil(left / 1000); return; } // break countdown
+  if (state.phase !== "question") return;
   const p = 1 - left / state.turnMs;
   if (t) t.textContent = Math.ceil(left / 1000);
   if (el) {
@@ -29,34 +37,54 @@ function tickPuffer(state, skew) {
     el.classList.toggle("panic", left < 5000);
   }
 }
+const breakLine = s => `<div class="turnline mine">${s.q + 1 >= s.total ? "Final scores" : "Next question"} in <span id="t">${s.breakMs / 1000}</span> seconds${s.q + 1 >= s.total ? "" : ". Get ready!"}</div>`;
 
 // ---- shared turn-based helpers ----
 const hearts = (n, max) => Array.from({ length: max }, (_, i) => i < n ? "♥" : "<i>♥</i>").join("");
 const teamName = (s, id) => (s.teams.find(t => t.id === id) || {}).name || "";
+const pts = (p, plus = true) => p == null ? "" : `<b>${plus ? "+" : ""}${p}</b>`;
+const hiddenNote = s => s.scoresHidden ? '<p class="mute">Final question: scores are hidden until the end!</p>' : "";
 // one line describing what just happened
 function ticker(s) {
   const l = s.last; if (!l) return "";
   return l.kind === "hit"
-    ? `<p class="tick"><b>${esc(l.name)}</b> said <b>${esc(l.text)}</b> <span class="badge t-${l.tier}">${esc(l.label)}</span> <b>+${l.points}</b></p>`
+    ? `<p class="tick"><b>${esc(l.name)}</b> said <b>${esc(l.text)}</b> <span class="badge t-${l.tier}">${esc(l.label)}</span> ${pts(l.points)}</p>`
     : `<p class="tick bad"><b>${esc(l.name)}</b> ran out of time and lost a life${l.label === "Eliminated" ? " — eliminated!" : "."}</p>`;
 }
 // answers claimed so far on this question
 function usedList(s) {
   const rows = s.used.map(u => `<div class="row"><span><b>${esc(u.text)}</b> <span class="mute">· ${esc(u.by)}</span></span>
-    <span><span class="badge t-${u.tier}">${esc(u.label)}</span> <b>+${u.points}</b></span></div>`).join("");
+    <span><span class="badge t-${u.tier}">${esc(u.label)}</span> ${pts(u.points)}</span></div>`).join("");
   return `<div class="card"><p class="mute">${s.left} answer${s.left === 1 ? "" : "s"} left to find</p>${rows}</div>`;
 }
-const endNote = s => s.endReason === "all" ? "Every answer found! Lives are safe." : s.endReason === "half" ? "More than half the answers were found, so the question ends here." : "Question skipped.";
+const endNote = s => s.endReason === "all" ? "Every answer found! Lives are safe." : s.endReason === "strikes" ? "Two lives were lost, so the question ends here." : s.endReason === "half" ? "More than half the answers were found, so the question ends here." : "Question skipped.";
 // full answer list once a question is over (unclaimed ones too)
 function revealList(s) {
   return `<div class="card">${s.results.map(r => `<div class="row"><span><b>${esc(r.text)}</b> <span class="mute">· ${r.by ? esc(teamName(s, r.by)) : "nobody got it"}</span></span>
-    <span><span class="badge t-${r.tier}">${esc(r.label)}</span> <b>${r.by ? "+" + r.points : r.points}</b></span></div>`).join("")}</div>`;
+    <span><span class="badge t-${r.tier}">${esc(r.label)}</span> ${pts(r.points, !!r.by)}</span></div>`).join("")}</div>`;
 }
-// last one standing first, then by score; eliminated players by how late they went out
-function ranking(s) {
-  const live = s.teams.filter(t => t.lives > 0).sort((x, y) => y.score - x.score || y.lives - x.lives);
-  const dead = s.teams.filter(t => t.lives <= 0).sort((x, y) => y.out - x.out);
-  return [...live, ...dead];
+// final placing: highest score first (ties: more lives, then went out later)
+const ranking = s => [...s.teams].sort((x, y) => y.score - x.score || y.lives - x.lives || y.out - x.out);
+
+// ---- suspenseful final reveal: places 4+ together, then 3rd, 2nd, 1st, FINAL_STEP_MS apart (synced to the server clock) ----
+const FINAL_STEP_MS = 4000;
+function finalInfo(s, skew) {
+  const top = ranking(s), n = top.length, groups = [];
+  if (n > 3) groups.push(Array.from({ length: n - 3 }, (_, i) => i + 3));
+  for (let i = Math.min(n, 3) - 1; i >= 0; i--) groups.push([i]);
+  const step = Math.min(groups.length, Math.max(0, Math.floor((Date.now() + skew - s.finalAt) / FINAL_STEP_MS)));
+  const shown = new Set(groups.slice(0, step).flat()), fresh = new Set(step ? groups[step - 1] : []);
+  const masked = { ...s, teams: s.teams.map(t => shown.has(top.indexOf(t)) ? t : { ...t, score: null }) };
+  return { top, step, shown, fresh, done: shown.size === n, masked };
+}
+function finalTitle(s, f, meId) {
+  if (!f.done) return "Drumroll…";
+  const w = f.top[0]; return w.id === meId ? "You win!" : esc(w.name) + " wins!";
+}
+function finalBoard(s, f, meId) {
+  return f.top.map((t, i) => f.shown.has(i)
+    ? `<div class="row${f.fresh.has(i) ? " new" : ""}${i === 0 ? " first" : ""}"><span>${i + 1}. ${t.id === meId ? "<b>" + esc(t.name) + "</b>" : esc(t.name)} <span class="lv">${hearts(t.lives, s.maxLives)}</span></span><b>${t.score}</b></div>`
+    : `<div class="row mute"><span>${i + 1}. ???</span><b>?</b></div>`).join("");
 }
 
 // ---- Arena: every team is a shrimp on a rock seat around the puffer (6 seats) ----
@@ -75,7 +103,7 @@ function arena(s, meId) {
       cls = (turn ? " turn" : "") + (dead ? " dead" : "");
       const bub = turn ? `<span class="bub ok">${t.id === meId ? "▶ YOUR TURN" : "▶ turn"}</span>` : "";
       inner = `${bub}<div class="shr">${shrimp(teamColor(s, t.id))}</div><div class="rock"></div>
-        <div class="nm ${t.id === meId ? "me" : ""}">${esc(t.name)}</div><div class="lv">${hearts(t.lives, s.maxLives)}</div><div class="sc">${t.score}</div>`;
+        <div class="nm ${t.id === meId ? "me" : ""}">${esc(t.name)}</div><div class="lv">${hearts(t.lives, s.maxLives)}</div><div class="sc">${t.score === null ? "?" : t.score}</div>`;
     }
     seats += `<div class="seat${cls}" style="left:${x}%;top:${y}%">${inner}</div>`;
   }

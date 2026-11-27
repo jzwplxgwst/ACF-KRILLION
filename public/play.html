@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Krillion · Puffer Party</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"><script src="/puffer.js"></script></head>
-<body><main><div class="brand">KRILLION</div><div class="tag">Puffer Party</div><div id="app"></div></main>
+<body><main><div class="brand">ACF KRILLION</div><div class="tag">Puffer Party</div><div id="app"></div></main>
 <script>
 let me = null, state = null, skew = 0, lastKey = "", es = null;
 try { me = JSON.parse(localStorage.getItem("dd-me") || "null"); } catch {}
@@ -42,7 +42,7 @@ function render() {
   if (s.phase === "question" && my) {
     if (key !== lastKey) { // build the form once per turn so typing isn't wiped; only the arena refreshes
       lastKey = key;
-      a.innerHTML = `${head(s)}<div class="turnline mine">Your turn!</div><div id="ar"></div><div class="timer" id="t"></div>${ticker(s)}
+      a.innerHTML = `${head(s)}${hiddenNote(s)}<div class="turnline mine">Your turn!</div><div id="ar"></div><div class="timer" id="t"></div>${ticker(s)}
         <div class="card"><input id="a" maxlength="80" placeholder="name an answer…" autocomplete="off" onkeydown="if(event.key==='Enter')submit()">
         <button id="go" onclick="submit()">Lock it in</button><p class="err" id="lock"></p></div>${usedList(s)}`;
       $("a").focus();
@@ -55,14 +55,13 @@ function render() {
     a.innerHTML = `${arena(s, me.teamId)}<div class="card"><p>You’re in as <b>${esc(me.name)}</b>.</p><p class="mute">Waiting for the host to start.</p></div>`;
   } else if (s.phase === "question") {
     const out = mine().lives <= 0;
-    a.innerHTML = `${head(s)}<div class="turnline">${esc(teamName(s, s.turn))}’s turn</div>${arena(s, me.teamId)}<div class="timer" id="t"></div>
+    a.innerHTML = `${head(s)}${hiddenNote(s)}<div class="turnline">${esc(teamName(s, s.turn))}’s turn</div>${arena(s, me.teamId)}<div class="timer" id="t"></div>
       ${out ? '<p class="mute">You’re out. Watch the rest!</p>' : livesLine(s)}${ticker(s)}${usedList(s)}`;
   } else if (s.phase === "reveal") {
-    a.innerHTML = `${head(s)}<p class="mute">${endNote(s)}</p>${arena(s, me.teamId)}${livesLine(s)}${ticker(s)}${revealList(s)}<p class="mute">Waiting for the next question.</p>`;
+    a.innerHTML = `${head(s)}${hiddenNote(s)}<p class="mute">${endNote(s)}</p>${breakLine(s)}${arena(s, me.teamId)}${livesLine(s)}${ticker(s)}${revealList(s)}`;
   } else {
-    const top = ranking(s), w = top[0];
-    a.innerHTML = `<div class="prompt">${w && w.lives > 0 ? (w.id === me.teamId ? "You win!" : esc(w.name) + " wins!") : "Everyone's out!"}</div>${arena(s, me.teamId)}
-      <div class="card">${top.map((t, i) => `<div class="row"><span>${i + 1}. ${t.id === me.teamId ? "<b>" + esc(t.name) + "</b>" : esc(t.name)} <span class="lv">${hearts(t.lives, s.maxLives)}</span></span><b>${t.score}</b></div>`).join("")}</div>`;
+    const f = finalInfo(s, skew);
+    a.innerHTML = `<div class="prompt">${finalTitle(s, f, me.teamId)}</div>${arena(f.masked, me.teamId)}<div class="card final">${finalBoard(s, f, me.teamId)}</div>`;
   }
 }
 setInterval(() => tickPuffer(state, skew), 100);

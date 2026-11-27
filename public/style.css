@@ -94,3 +94,7 @@ background:repeating-linear-gradient(115deg,rgba(255,255,255,.045) 0 14px,transp
 .tick.bad{color:#ffb4b4}
 .turnline{font-size:clamp(18px,3.6vw,28px);font-weight:800;margin:6px 0}
 .turnline.mine{color:var(--pop)}
+
+/* ---- final reveal ---- */
+@media (prefers-reduced-motion:no-preference){.final .row{animation:none}.final .row.new{animation:pop .5s ease-out both}}
+.final .row.first{color:var(--pop);font-size:1.25em}
