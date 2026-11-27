@@ -50,3 +50,35 @@ button:disabled{opacity:.4;cursor:default}
 .win .puffer{width:90px;margin:0 auto 6px}
 @media (prefers-reduced-motion:no-preference){.timer{transition:color .3s}.chip,.row{animation:pop .35s ease-out both}@keyframes pop{from{transform:scale(.6);opacity:0}}.big-puffer{animation:bob 3s ease-in-out infinite}@keyframes bob{50%{translate:0 -8px}}}
 @media (prefers-reduced-motion:reduce){.hot.panic .puffer{animation:none}}
+
+/* ---- Puffer Party arena + pixel-style panels ---- */
+body{font-family:ui-monospace,"Cascadia Mono","Courier New",monospace}
+.brand{font-size:clamp(30px,7vw,52px);letter-spacing:.2em;color:#fff;text-shadow:3px 0 #ff4d8d,-3px 0 #44e3cf;margin:4px 0 0}
+.tag{letter-spacing:.45em;color:#6aa8ff;font-style:normal;text-transform:uppercase;font-size:13px}
+.card,.panel{background:#0b1b2e;border:3px solid #050a14;border-radius:4px;box-shadow:inset 0 0 0 2px #1f3b5c;backdrop-filter:none}
+.panel{padding:14px 18px;margin:10px auto;max-width:720px;text-align:left}
+.panel small{display:block;letter-spacing:.35em;color:#6aa8ff;font-size:11px;text-transform:uppercase;margin-bottom:6px}
+.panel .prompt{font-size:clamp(20px,4.2vw,34px);margin:4px 0 0}
+button{border-radius:4px;background:#0b2a3f;color:#fff;border:3px solid var(--glow);box-shadow:0 0 0 2px #050a14;text-transform:uppercase;letter-spacing:.2em;font-size:15px}
+button:active:not(:disabled){transform:none;background:#124560;box-shadow:0 0 0 2px #050a14}
+input{border-radius:4px;background:#0b1b2e;color:#fff;border:3px solid var(--glow);font-weight:600}
+input::placeholder{color:#6f91a6}
+.chip,.badge,.code{border-radius:4px}
+.arena{position:relative;width:100%;max-width:760px;aspect-ratio:1/.9;margin:10px auto;border:3px solid #050a14;border-radius:4px;overflow:hidden;
+box-shadow:inset 0 0 0 2px #1f3b5c,0 0 40px rgba(68,150,255,.15);
+background:repeating-linear-gradient(115deg,rgba(255,255,255,.045) 0 14px,transparent 14px 34px),radial-gradient(circle at 50% 45%,#2f6a9b 0,#1f4a73 55%,#14304b 100%)}
+.arena::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(circle,rgba(0,0,0,.18) 0 1px,transparent 1.5px) 0 0/6px 6px}
+.mid{position:absolute;left:50%;top:47%;width:28%;translate:-50% -50%}
+.mid .hot{width:100%;height:auto;aspect-ratio:1;margin:0}
+.mid .hot .puffer{transform:scale(calc(.5 + var(--p)*.6))}
+.mid .hot.idle{--p:.25}
+.seat{--s:clamp(46px,12vw,84px);position:absolute;translate:-50% -50%;width:calc(var(--s)*1.6);display:flex;flex-direction:column;align-items:center;font-size:clamp(10px,2.4vw,14px)}
+.rock{width:var(--s);height:calc(var(--s)*.5);background:#1c2c40;border-radius:50% 50% 45% 45%;border-bottom:5px solid #0a1320;box-shadow:inset 0 5px 0 #2a4260}
+.rock.empty{opacity:.45}
+.shr{width:calc(var(--s)*.5);margin-bottom:calc(var(--s)*-.28);position:relative;z-index:1}
+.shrimp{width:100%;display:block}
+.nm{margin-top:4px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 2px 0 #050a14}
+.nm.me{color:var(--pop)}
+.sc{color:#ff9fd0;font-weight:800;text-shadow:0 2px 0 #050a14}
+.bub{position:absolute;bottom:calc(100% - 4px);white-space:nowrap;font-size:.85em;padding:2px 8px;z-index:2}
+.bub.ok{background:var(--glow);color:#03121c;border-radius:4px;font-weight:800}

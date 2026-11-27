@@ -31,3 +31,27 @@ function tickPuffer(state, skew) {
     el.classList.toggle("panic", left < 6000);
   }
 }
+
+// ---- Arena: every team is a shrimp on a rock seat around the puffer (6 seats) ----
+function shrimp(color) {
+  return `<svg class="shrimp" viewBox="0 0 40 48" aria-hidden="true"><path d="M10 7Q3 0 1 9M30 7Q37 0 39 9" stroke="${color}" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M20 4c10 0 16 8 12 18-2 5-6 6-6 12H14c0-8-8-8-8-16C6 10 12 4 20 4z" fill="${color}"/>
+    <path d="M12 40h16l-3 7H15z" fill="${color}" opacity=".8"/><circle cx="15" cy="16" r="3.4" fill="#fff"/><circle cx="16" cy="16.5" r="1.7" fill="#03121c"/></svg>`;
+}
+function arena(s, meId) {
+  const N = 6, ph = s.phase; let seats = "";
+  for (let i = 0; i < N; i++) {
+    const a = (-90 + i * 360 / N) * Math.PI / 180, x = 50 + 39 * Math.cos(a), y = 47 + 35 * Math.sin(a), t = s.teams[i];
+    let inner = '<div class="rock empty"></div><div class="nm">open</div>';
+    if (t) {
+      const r = ph === "reveal" && s.results.find(r => r.teamId === t.id);
+      const bub = r ? `<span class="bub badge ${r.tier ? "t-" + r.tier : ""}">${esc(r.label)} +${r.points}</span>`
+        : ph === "question" && t.answered ? '<span class="bub ok">✓ locked in</span>' : "";
+      inner = `${bub}<div class="shr">${shrimp(teamColor(s, t.id))}</div><div class="rock"></div>
+        <div class="nm ${t.id === meId ? "me" : ""}">${esc(t.name)}</div><div class="sc">${t.score}</div>`;
+    }
+    seats += `<div class="seat" style="left:${x}%;top:${y}%">${inner}</div>`;
+  }
+  const mid = ph === "question" ? `<div class="hot" id="hot">${puffer("#ffb020")}</div>` : `<div class="hot idle">${puffer("#ffb020")}</div>`;
+  return `<div class="arena">${seats}<div class="mid">${mid}</div></div>`;
+}
