@@ -1,7 +1,8 @@
 // Deep Dive: a join-code trivia game with rarity scoring. No dependencies: run `node server.js`.
 const http = require("http"), fs = require("fs"), path = require("path"), os = require("os"), crypto = require("crypto");
 let PORT = Number(process.env.PORT) || 80; // port 80 gives a short join link; falls back to 3000 if 80 is busy
-const MAX_TEAMS = 6, ANSWER_SECONDS = 25;
+const MAX_TEAMS = 6, LAPS = 2; // each team gets up to 2 turns per question
+const TURN_SECONDS = Number(process.env.TURN_SECONDS) || 10;
 const PUB = path.join(__dirname, "public");
 const load = () => JSON.parse(fs.readFileSync(path.join(__dirname, "questions.json"), "utf8")); // re-read for each new room
 const rooms = new Map();
@@ -26,38 +27,53 @@ function findAnswer(q, text) {
   return null;
 }
 
-// ---- rooms ----
+// ---- rooms: hot-potato turns ----
 function newCode() {
   const c = "ABCDEFGHJKMNPQRSTUVWXYZ"; let s;
   do { s = Array.from({ length: 4 }, () => c[Math.floor(Math.random() * c.length)]).join(""); } while (rooms.has(s));
   return s;
 }
+const ids = r => [...r.teams.keys()];
+function nextHolder(r, from) { // next living team after index `from` that still has turns left
+  const list = ids(r);
+  for (let k = 1; k <= list.length; k++) {
+    const id = list[(from + k) % list.length];
+    if (r.alive.has(id) && r.taken.get(id) < LAPS) return id;
+  }
+  return null;
+}
 function view(r) {
+  const q = r.data.questions[r.q];
   return {
     now: Date.now(), code: r.code, phase: r.phase, q: r.q, total: r.data.questions.length, tiers: r.data.tiers,
-    prompt: r.phase === "question" || r.phase === "reveal" ? r.data.questions[r.q].prompt : null,
-    endsAt: r.endsAt, results: r.results,
-    teams: [...r.teams.values()].map(t => ({ id: t.id, name: t.name, score: t.score, answered: r.answers.has(t.id) })),
+    turnSeconds: TURN_SECONDS, laps: LAPS, prompt: q && (r.phase === "question" || r.phase === "reveal") ? q.prompt : null,
+    endsAt: r.endsAt, holder: r.holder, next: r.phase === "question" ? nextHolder(r, ids(r).indexOf(r.holder)) : null,
+    log: r.log, results: r.results,
+    teams: [...r.teams.values()].map(t => ({ id: t.id, name: t.name, score: t.score, alive: r.alive.has(t.id), turns: r.taken.get(t.id) || 0 })),
   };
 }
 function push(r) { const m = `data: ${JSON.stringify(view(r))}\n\n`; for (const c of r.clients) c.write(m); }
-function startQuestion(r) {
-  r.phase = "question"; r.answers = new Map(); r.results = []; r.endsAt = Date.now() + ANSWER_SECONDS * 1000;
-  clearTimeout(r.timer); r.timer = setTimeout(() => reveal(r), ANSWER_SECONDS * 1000 + 300);
-  push(r);
+function beginTurn(r, id) {
+  r.holder = id; r.endsAt = Date.now() + TURN_SECONDS * 1000;
+  clearTimeout(r.timer); r.timer = setTimeout(() => pop(r), TURN_SECONDS * 1000 + 200); push(r);
 }
-function reveal(r) {
+function passOn(r) { const id = nextHolder(r, ids(r).indexOf(r.holder)); id ? beginTurn(r, id) : endQuestion(r); }
+function startQuestion(r) {
+  const list = ids(r);
+  r.phase = "question"; r.alive = new Set(list); r.taken = new Map(list.map(i => [i, 0])); r.said = new Set(); r.log = []; r.results = [];
+  beginTurn(r, nextHolder(r, (r.q + list.length - 1) % list.length)); // the puffer starts with a different team each question
+}
+function pop(r) { // fuse ran out: this team is out for the rest of the question
+  if (r.phase !== "question") return;
+  const t = r.teams.get(r.holder); r.alive.delete(t.id);
+  r.log.push({ teamId: t.id, name: t.name, popped: true, points: 0 }); passOn(r);
+}
+function endQuestion(r) {
   if (r.phase !== "question") return;
   clearTimeout(r.timer);
-  const q = r.data.questions[r.q];
-  r.results = [...r.teams.values()].map(t => {
-    const text = r.answers.get(t.id) || "";
-    const a = findAnswer(q, text), tier = a ? a.tier : null;
-    const points = tier ? r.data.tiers[tier].points : 0;
-    t.score += points;
-    return { teamId: t.id, name: t.name, text, tier, points, label: tier ? r.data.tiers[tier].label : text ? "Not on the list" : "No answer" };
-  }).sort((x, y) => y.points - x.points);
-  r.phase = "reveal"; r.endsAt = 0; push(r);
+  r.results = [...r.teams.values()].map(t => ({ teamId: t.id, name: t.name, popped: !r.alive.has(t.id),
+    points: r.log.filter(l => l.teamId === t.id).reduce((n, l) => n + l.points, 0) })).sort((x, y) => y.points - x.points);
+  r.phase = "reveal"; r.endsAt = 0; r.holder = null; push(r);
 }
 
 // ---- http ----
@@ -85,7 +101,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === "/api/create") {
       let data; try { data = load(); } catch (e) { return send(res, 500, { error: "questions.json is invalid: " + e.message }); }
       const r = { code: newCode(), hostKey: crypto.randomBytes(8).toString("hex"), data, phase: "lobby", q: -1,
-        teams: new Map(), answers: new Map(), results: [], endsAt: 0, clients: new Set(), timer: null };
+        teams: new Map(), alive: new Set(), taken: new Map(), said: new Set(), log: [], holder: null, results: [], endsAt: 0, clients: new Set(), timer: null };
       rooms.set(r.code, r);
       return send(res, 200, { code: r.code, hostKey: r.hostKey, urls: lanUrls() });
     }
@@ -105,14 +121,20 @@ const server = http.createServer(async (req, res) => {
     }
     if (u.pathname === "/api/answer") {
       const t = r.teams.get(b.teamId), text = String(b.text || "").trim().slice(0, 80);
-      if (!t || r.phase !== "question" || !text) return send(res, 400, { error: "Answers are closed." });
-      r.answers.set(t.id, text); send(res, 200, { ok: true });
-      return r.answers.size === r.teams.size ? reveal(r) : push(r);
+      if (!t || r.phase !== "question" || r.holder !== t.id) return send(res, 400, { error: "It’s not your turn." });
+      if (!norm(text)) return send(res, 400, { error: "Type an answer." });
+      const a = findAnswer(r.data.questions[r.q], text), key = a ? norm(a.text) : norm(text);
+      if (r.said.has(key)) return send(res, 400, { error: "Someone already said that. Try another!" });
+      r.said.add(key);
+      const tier = a ? a.tier : null, points = tier ? r.data.tiers[tier].points : 0, label = tier ? r.data.tiers[tier].label : "Not on the list";
+      t.score += points; r.taken.set(t.id, r.taken.get(t.id) + 1);
+      r.log.push({ teamId: t.id, name: t.name, text, tier, points, label });
+      send(res, 200, { ok: true, label, points }); return passOn(r);
     }
     if (u.pathname === "/api/host") {
       if (b.hostKey !== r.hostKey) return send(res, 403, { error: "Not the host." });
       if (b.action === "start" && r.phase === "lobby" && r.teams.size) { r.q = 0; startQuestion(r); }
-      else if (b.action === "reveal") reveal(r);
+      else if (b.action === "reveal") endQuestion(r);
       else if (b.action === "next" && r.phase === "reveal") {
         if (r.q + 1 < r.data.questions.length) { r.q++; startQuestion(r); } else { r.phase = "final"; push(r); }
       }

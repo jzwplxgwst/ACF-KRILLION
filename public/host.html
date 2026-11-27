@@ -2,13 +2,10 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ACF Krillion · Host</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head>
 <body><main><div class="brand">ACF Krillion</div><div id="app" class="mute">Starting…</div></main>
+<script src="/puffer.js"></script>
 <script>
 let room, state, skew = 0, joinUrl = location.origin;
-const $ = id => document.getElementById(id);
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const post = (p, b) => fetch(p, { method: "POST", body: JSON.stringify(b) }).then(r => r.json());
 const act = a => post("/api/host", { code: room.code, hostKey: room.hostKey, action: a });
-
 (async function init() {
   room = await post("/api/create", {});
   if (!room.code) { $("app").textContent = room.error || "Could not start a room."; return; }
@@ -16,39 +13,31 @@ const act = a => post("/api/host", { code: room.code, hostKey: room.hostKey, act
   const es = new EventSource("/api/events?code=" + room.code);
   es.onmessage = e => { state = JSON.parse(e.data); skew = state.now - Date.now(); render(); };
 })();
-
-const board = s => [...s.teams].sort((a, b) => b.score - a.score)
-  .map(t => `<div class="row"><span>${esc(t.name)}</span><b>${t.score}</b></div>`).join("");
-const tierKey = s => Object.entries(s.tiers)
-  .map(([id, t]) => `<span class="badge t-${id}">${esc(t.label)} ${t.points}</span>`).join(" ");
-
+const tierKey = s => Object.entries(s.tiers).map(([id, t]) => `<span class="badge t-${id}">${esc(t.label)} ${t.points}</span>`).join(" ");
+function seat(t, i, n, s) {
+  const g = -Math.PI / 2 + i * 2 * Math.PI / n, cls = t.id === s.holder ? "hold" : !t.alive ? "out" : "";
+  const note = t.id === s.holder ? "has the puffer" : !t.alive ? "popped" : t.id === s.next ? "up next" : "";
+  return `<div class="seat ${cls}" style="left:${50 + 41 * Math.cos(g)}%;top:${50 + 41 * Math.sin(g)}%"><b>${esc(t.name)}</b><div class="mute">${t.score}${note ? " · " + note : ""}</div></div>`;
+}
 function render() {
   const s = state, a = $("app");
   if (s.phase === "lobby") {
-    a.innerHTML = `<p>Open <b>${esc(joinUrl)}</b> on your phone and enter</p>
-      <div class="code">${s.code}</div>
+    a.innerHTML = `<p>Open <b>${esc(joinUrl)}</b> on your phone and enter</p><div class="code">${s.code}</div>
       <div class="card"><div class="teams">${s.teams.map(t => `<span class="chip">${esc(t.name)}</span>`).join("") || "<span class='mute'>No teams yet</span>"}</div>
       <p class="mute">${s.teams.length} of 6 teams</p></div>
-      <p>${tierKey(s)}</p>
+      <p class="mute">Hot potato: the puffer passes team to team. Answer before it pops. Rarer answers score more.</p><p>${tierKey(s)}</p>
       <button onclick="act('start')" ${s.teams.length ? "" : "disabled"}>Start game</button>`;
   } else if (s.phase === "question") {
-    a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p>
-      <div class="prompt">${esc(s.prompt)}</div><div class="timer" id="t"></div>
-      <div class="card"><div class="teams">${s.teams.map(t => `<span class="chip ${t.answered ? "done" : ""}">${esc(t.name)}</span>`).join("")}</div></div>
-      <button onclick="act('reveal')">Reveal answers</button>`;
-  } else if (s.phase === "reveal") {
-    const last = s.q + 1 >= s.total;
     a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="prompt">${esc(s.prompt)}</div>
-      <div class="card">${s.results.map(r => `<div class="row"><span><b>${esc(r.name)}</b>: ${esc(r.text || "no answer")}</span>
-        <span><span class="badge ${r.tier ? "t-" + r.tier : ""}">${esc(r.label)}</span> <b>+${r.points}</b></span></div>`).join("")}</div>
-      <div class="card"><div class="mute">Scores</div>${board(s)}</div>
-      <button onclick="act('next')">${last ? "Final scores" : "Next question"}</button>`;
-  } else {
-    a.innerHTML = `<div class="prompt">Final scores</div><div class="card">${board(s)}</div>`;
-  }
+      <div class="ring"><div class="pbox">${puffer()}<div class="ptime" id="t"></div></div>${s.teams.map((t, i) => seat(t, i, s.teams.length, s)).join("")}</div>
+      <div class="card">${s.log.slice(-3).reverse().map(logRow).join("") || "<span class='mute'>Waiting for the first answer…</span>"}</div>
+      <button onclick="act('reveal')">End question</button>`;
+    tick(s, skew);
+  } else if (s.phase === "reveal") {
+    a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="prompt">${esc(s.prompt)}</div>
+      <div class="card">${s.log.map(logRow).join("")}</div><div class="card"><div class="mute">Scores</div>${board(s)}</div>
+      <button onclick="act('next')">${s.q + 1 >= s.total ? "Final scores" : "Next question"}</button>`;
+  } else a.innerHTML = `<div class="prompt">Final scores</div><div class="card">${board(s)}</div>`;
 }
-setInterval(() => {
-  const t = $("t");
-  if (t && state && state.phase === "question") t.textContent = Math.max(0, Math.ceil((state.endsAt - (Date.now() + skew)) / 1000));
-}, 250);
+setInterval(() => tick(state, skew), 100);
 </script></body></html>

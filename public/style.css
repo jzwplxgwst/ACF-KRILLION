@@ -27,3 +27,13 @@ button:disabled{opacity:.4;cursor:default}
 .t-deepcut{background:var(--deepcut)}.t-krillion{background:var(--krillion)}
 .err{color:#ffb4b4;min-height:1.5em}
 @media (prefers-reduced-motion:no-preference){.timer{transition:color .3s}}
+.ring{position:relative;width:min(100%,600px);aspect-ratio:1;margin:8px auto}
+.pbox{position:absolute;inset:27%;display:grid;place-items:center}
+.pf{width:min(60vw,220px);margin:6px auto;color:var(--glow)}
+.pbox .pf{width:100%;margin:0}
+.pf svg{display:block;width:100%}
+.ptime{position:absolute;font-size:clamp(30px,7vw,56px);font-weight:800;color:#03121c}
+.seat{position:absolute;transform:translate(-50%,-50%);background:var(--shelf);border-radius:16px;padding:8px 14px;min-width:92px;max-width:34%;overflow-wrap:anywhere}
+.seat.hold{background:var(--glow);color:#03121c;box-shadow:0 0 34px var(--glow)}
+.seat.hold .mute{color:#03121c}
+.seat.out{opacity:.4}
