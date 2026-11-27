@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ACF Krillion · Host</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head>
-<body><main><div class="brand">ACF Krillion</div><div id="app" class="mute">Starting…</div></main>
+<title>Krillion · Puffer Party</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"><script src="/puffer.js"></script></head>
+<body><main><div class="brand">KRILLION</div><div class="tag">Puffer Party · one in a krillion.</div><div id="app" class="mute">Starting…</div></main>
 <script>
 let room, state, skew = 0, joinUrl = location.origin;
 const $ = id => document.getElementById(id);
@@ -18,7 +18,7 @@ const act = a => post("/api/host", { code: room.code, hostKey: room.hostKey, act
 })();
 
 const board = s => [...s.teams].sort((a, b) => b.score - a.score)
-  .map(t => `<div class="row"><span>${esc(t.name)}</span><b>${t.score}</b></div>`).join("");
+  .map(t => `<div class="row"><span>${puffer(teamColor(s, t.id))}${esc(t.name)}</span><b>${t.score}</b></div>`).join("");
 const tierKey = s => Object.entries(s.tiers)
   .map(([id, t]) => `<span class="badge t-${id}">${esc(t.label)} ${t.points}</span>`).join(" ");
 
@@ -27,28 +27,27 @@ function render() {
   if (s.phase === "lobby") {
     a.innerHTML = `<p>Open <b>${esc(joinUrl)}</b> on your phone and enter</p>
       <div class="code">${s.code}</div>
-      <div class="card"><div class="teams">${s.teams.map(t => `<span class="chip">${esc(t.name)}</span>`).join("") || "<span class='mute'>No teams yet</span>"}</div>
-      <p class="mute">${s.teams.length} of 6 teams</p></div>
+      <div class="card"><div class="teams">${s.teams.map(t => `<span class="chip">${puffer(teamColor(s, t.id))}${esc(t.name)}</span>`).join("") || "<span class='mute'>Waiting for puffers…</span>"}</div>
+      <p class="mute">${s.teams.length} of 6 teams in the water</p></div>
       <p>${tierKey(s)}</p>
-      <button onclick="act('start')" ${s.teams.length ? "" : "disabled"}>Start game</button>`;
+      <button onclick="act('start')" ${s.teams.length ? "" : "disabled"}>Start the party</button>`;
   } else if (s.phase === "question") {
     a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p>
-      <div class="prompt">${esc(s.prompt)}</div><div class="timer" id="t"></div>
-      <div class="card"><div class="teams">${s.teams.map(t => `<span class="chip ${t.answered ? "done" : ""}">${esc(t.name)}</span>`).join("")}</div></div>
-      <button onclick="act('reveal')">Reveal answers</button>`;
+      <div class="prompt">${esc(s.prompt)}</div>
+      <div class="hot" id="hot">${puffer("#ffb020")}</div><div class="timer" id="t"></div>
+      <div class="card"><div class="teams">${s.teams.map(t => `<span class="chip ${t.answered ? "done" : ""}">${puffer(teamColor(s, t.id))}${esc(t.name)}${t.answered ? " ✓" : ""}</span>`).join("")}</div></div>
+      <button onclick="act('reveal')">Pop it!</button>`;
   } else if (s.phase === "reveal") {
     const last = s.q + 1 >= s.total;
     a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="prompt">${esc(s.prompt)}</div>
-      <div class="card">${s.results.map(r => `<div class="row"><span><b>${esc(r.name)}</b>: ${esc(r.text || "no answer")}</span>
+      <div class="card">${s.results.map(r => `<div class="row"><span>${puffer(teamColor(s, r.teamId))}<b>${esc(r.name)}</b>: ${esc(r.text || "no answer")}</span>
         <span><span class="badge ${r.tier ? "t-" + r.tier : ""}">${esc(r.label)}</span> <b>+${r.points}</b></span></div>`).join("")}</div>
-      <div class="card"><div class="mute">Scores</div>${board(s)}</div>
+      <div class="card"><div class="mute">Depth (score)</div>${board(s)}</div>
       <button onclick="act('next')">${last ? "Final scores" : "Next question"}</button>`;
   } else {
-    a.innerHTML = `<div class="prompt">Final scores</div><div class="card">${board(s)}</div>`;
+    const top = [...s.teams].sort((x, y) => y.score - x.score)[0];
+    a.innerHTML = `<div class="win">${top ? puffer(teamColor(s, top.id)) : ""}</div><div class="prompt">Deepest dive: ${top ? esc(top.name) : ""}</div><div class="card">${board(s)}</div>`;
   }
 }
-setInterval(() => {
-  const t = $("t");
-  if (t && state && state.phase === "question") t.textContent = Math.max(0, Math.ceil((state.endsAt - (Date.now() + skew)) / 1000));
-}, 250);
+setInterval(() => tickPuffer(state, skew), 100);
 </script></body></html>
