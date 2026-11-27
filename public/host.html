@@ -24,20 +24,21 @@ function render() {
   const s = state, a = $("app");
   if (s.phase === "lobby") {
     a.innerHTML = `<p>Open <b>${esc(joinUrl)}</b> on your phone and enter</p><div class="code">${s.code}</div>
-      ${arena(s)}<p class="mute">${s.teams.length} of 6 seats taken</p><p>${tierKey(s)}</p>
+      ${arena(s)}<p class="mute">${s.teams.length} of 6 seats taken</p>
+      <p class="mute">Take turns naming answers. Miss your ${s.turnMs / 1000} seconds and lose a life. ${s.maxLives} lives each. Last one standing wins!</p><p>${tierKey(s)}</p>
       <button onclick="act('start')" ${s.teams.length ? "" : "disabled"}>Start the party</button>`;
   } else if (s.phase === "question") {
-    a.innerHTML = `${head(s)}${arena(s)}<div class="timer" id="t"></div><button onclick="act('reveal')">Pop it!</button>`;
+    const who = teamName(s, s.turn);
+    a.innerHTML = `${head(s)}<div class="turnline">${esc(who)}, you're up!</div>${arena(s)}<div class="timer" id="t"></div>${ticker(s)}${usedList(s)}
+      <button onclick="act('reveal')">Skip question</button>`;
   } else if (s.phase === "reveal") {
     const last = s.q + 1 >= s.total;
-    a.innerHTML = `${head(s)}${arena(s)}
-      <div class="card">${s.results.map(r => `<div class="row"><span><b>${esc(r.name)}</b>: ${esc(r.text || "no answer")}</span>
-        <span><span class="badge ${r.tier ? "t-" + r.tier : ""}">${esc(r.label)}</span> <b>+${r.points}</b></span></div>`).join("")}</div>
+    a.innerHTML = `${head(s)}<p class="mute">${endNote(s)}</p>${arena(s)}${ticker(s)}${revealList(s)}
       <button onclick="act('next')">${last ? "Final scores" : "Next question"}</button>`;
   } else {
-    const top = [...s.teams].sort((x, y) => y.score - x.score);
-    a.innerHTML = `<div class="prompt">Deepest dive: ${top[0] ? esc(top[0].name) : ""}</div>${arena(s)}
-      <div class="card">${top.map(t => `<div class="row"><span>${esc(t.name)}</span><b>${t.score}</b></div>`).join("")}</div>`;
+    const top = ranking(s), w = top[0];
+    a.innerHTML = `<div class="prompt">${w && w.lives > 0 ? "Last one standing: " + esc(w.name) : "Everyone's out!"}</div>${arena(s)}
+      <div class="card">${top.map((t, i) => `<div class="row"><span>${i + 1}. ${esc(t.name)} <span class="lv">${hearts(t.lives, s.maxLives)}</span></span><b>${t.score}</b></div>`).join("")}</div>`;
   }
 }
 setInterval(() => tickPuffer(state, skew), 100);

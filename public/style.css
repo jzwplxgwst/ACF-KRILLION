@@ -82,3 +82,15 @@ background:repeating-linear-gradient(115deg,rgba(255,255,255,.045) 0 14px,transp
 .sc{color:#ff9fd0;font-weight:800;text-shadow:0 2px 0 #050a14}
 .bub{position:absolute;bottom:calc(100% - 4px);white-space:nowrap;font-size:.85em;padding:2px 8px;z-index:2}
 .bub.ok{background:var(--glow);color:#03121c;border-radius:4px;font-weight:800}
+
+/* ---- lives, turns ---- */
+.lv{color:#ff5c7a;letter-spacing:.08em;text-shadow:0 2px 0 #050a14;line-height:1}
+.lv i{font-style:normal;opacity:.2}
+.seat.turn .rock{box-shadow:inset 0 5px 0 #2a4260,0 0 0 3px var(--pop),0 0 24px rgba(255,176,32,.6)}
+.seat.turn .nm{color:var(--pop)}
+.seat.dead{opacity:.35;filter:grayscale(1)}
+.seat.dead .shr{transform:rotate(180deg)}
+.tick{margin:8px 0;min-height:1.5em}
+.tick.bad{color:#ffb4b4}
+.turnline{font-size:clamp(18px,3.6vw,28px);font-weight:800;margin:6px 0}
+.turnline.mine{color:var(--pop)}

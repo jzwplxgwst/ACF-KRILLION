@@ -17,19 +17,46 @@ function puffer(color = "#ffb020", cls = "") {
   </svg>`;
 }
 const teamColor = (s, id) => PUFFER_COLORS[[...s.teams].findIndex(t => t.id === id) % PUFFER_COLORS.length] || PUFFER_COLORS[0];
-// Drives every .inflate element from the countdown: grows, shakes and reddens near zero.
-let _maxMs = 25000, _lastQ = null;
+// Drives the center puffer from the turn countdown: grows, shakes and reddens near zero. Resets every turn.
 function tickPuffer(state, skew) {
   const el = document.getElementById("hot"), t = document.getElementById("t");
   if (!state || state.phase !== "question") return;
   const left = Math.max(0, state.endsAt - (Date.now() + skew));
-  if (_lastQ !== state.q) { _lastQ = state.q; _maxMs = Math.max(left, 1000); }
-  const p = 1 - left / _maxMs;
+  const p = 1 - left / state.turnMs;
   if (t) t.textContent = Math.ceil(left / 1000);
   if (el) {
     el.style.setProperty("--p", p.toFixed(3));
-    el.classList.toggle("panic", left < 6000);
+    el.classList.toggle("panic", left < 5000);
   }
+}
+
+// ---- shared turn-based helpers ----
+const hearts = (n, max) => Array.from({ length: max }, (_, i) => i < n ? "♥" : "<i>♥</i>").join("");
+const teamName = (s, id) => (s.teams.find(t => t.id === id) || {}).name || "";
+// one line describing what just happened
+function ticker(s) {
+  const l = s.last; if (!l) return "";
+  return l.kind === "hit"
+    ? `<p class="tick"><b>${esc(l.name)}</b> said <b>${esc(l.text)}</b> <span class="badge t-${l.tier}">${esc(l.label)}</span> <b>+${l.points}</b></p>`
+    : `<p class="tick bad"><b>${esc(l.name)}</b> ran out of time and lost a life${l.label === "Eliminated" ? " — eliminated!" : "."}</p>`;
+}
+// answers claimed so far on this question
+function usedList(s) {
+  const rows = s.used.map(u => `<div class="row"><span><b>${esc(u.text)}</b> <span class="mute">· ${esc(u.by)}</span></span>
+    <span><span class="badge t-${u.tier}">${esc(u.label)}</span> <b>+${u.points}</b></span></div>`).join("");
+  return `<div class="card"><p class="mute">${s.left} answer${s.left === 1 ? "" : "s"} left to find</p>${rows}</div>`;
+}
+const endNote = s => s.endReason === "all" ? "Every answer found! Lives are safe." : s.endReason === "half" ? "More than half the answers were found, so the question ends here." : "Question skipped.";
+// full answer list once a question is over (unclaimed ones too)
+function revealList(s) {
+  return `<div class="card">${s.results.map(r => `<div class="row"><span><b>${esc(r.text)}</b> <span class="mute">· ${r.by ? esc(teamName(s, r.by)) : "nobody got it"}</span></span>
+    <span><span class="badge t-${r.tier}">${esc(r.label)}</span> <b>${r.by ? "+" + r.points : r.points}</b></span></div>`).join("")}</div>`;
+}
+// last one standing first, then by score; eliminated players by how late they went out
+function ranking(s) {
+  const live = s.teams.filter(t => t.lives > 0).sort((x, y) => y.score - x.score || y.lives - x.lives);
+  const dead = s.teams.filter(t => t.lives <= 0).sort((x, y) => y.out - x.out);
+  return [...live, ...dead];
 }
 
 // ---- Arena: every team is a shrimp on a rock seat around the puffer (6 seats) ----
@@ -42,15 +69,15 @@ function arena(s, meId) {
   const N = 6, ph = s.phase; let seats = "";
   for (let i = 0; i < N; i++) {
     const a = (-90 + i * 360 / N) * Math.PI / 180, x = 50 + 39 * Math.cos(a), y = 47 + 35 * Math.sin(a), t = s.teams[i];
-    let inner = '<div class="rock empty"></div><div class="nm">open</div>';
+    let inner = '<div class="rock empty"></div><div class="nm">open</div>', cls = "";
     if (t) {
-      const r = ph === "reveal" && s.results.find(r => r.teamId === t.id);
-      const bub = r ? `<span class="bub badge ${r.tier ? "t-" + r.tier : ""}">${esc(r.label)} +${r.points}</span>`
-        : ph === "question" && t.answered ? '<span class="bub ok">✓ locked in</span>' : "";
+      const turn = ph === "question" && s.turn === t.id, dead = ph !== "lobby" && t.lives <= 0;
+      cls = (turn ? " turn" : "") + (dead ? " dead" : "");
+      const bub = turn ? `<span class="bub ok">${t.id === meId ? "▶ YOUR TURN" : "▶ turn"}</span>` : "";
       inner = `${bub}<div class="shr">${shrimp(teamColor(s, t.id))}</div><div class="rock"></div>
-        <div class="nm ${t.id === meId ? "me" : ""}">${esc(t.name)}</div><div class="sc">${t.score}</div>`;
+        <div class="nm ${t.id === meId ? "me" : ""}">${esc(t.name)}</div><div class="lv">${hearts(t.lives, s.maxLives)}</div><div class="sc">${t.score}</div>`;
     }
-    seats += `<div class="seat" style="left:${x}%;top:${y}%">${inner}</div>`;
+    seats += `<div class="seat${cls}" style="left:${x}%;top:${y}%">${inner}</div>`;
   }
   const mid = ph === "question" ? `<div class="hot" id="hot">${puffer("#ffb020")}</div>` : `<div class="hot idle">${puffer("#ffb020")}</div>`;
   return `<div class="arena">${seats}<div class="mid">${mid}</div></div>`;

@@ -27,22 +27,25 @@ function connect() {
   es.onmessage = e => { state = JSON.parse(e.data); skew = state.now - Date.now(); render(); };
 }
 async function submit() {
-  const text = $("a").value.trim(); if (!text) return;
+  const el = $("a"), btn = $("go"), text = el.value.trim(); if (!text) return;
+  btn.disabled = true;
   const r = await post("/api/answer", { code: me.code, teamId: me.teamId, text });
-  $("lock").textContent = r.error ? r.error : `Locked in: ${text}. You can change it until time is up.`;
+  btn.disabled = false;
+  if (r.error) { $("lock").textContent = r.error; el.select(); } else $("lock").textContent = "";
 }
-const board = s => [...s.teams].sort((a, b) => b.score - a.score)
-  .map(t => `<div class="row"><span>${puffer(teamColor(s, t.id))}${t.id === me.teamId ? "<b>" + esc(t.name) + "</b>" : esc(t.name)}</span><b>${t.score}</b></div>`).join("");
+const mine = () => state.teams.find(t => t.id === me.teamId) || { lives: 0 };
+const head = s => `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="panel"><small>Category ${s.q + 1}</small><div class="prompt">${esc(s.prompt)}</div></div>`;
+const livesLine = s => `<p class="lv">${hearts(mine().lives, s.maxLives)}</p>`;
 
 function render() {
-  const s = state, a = $("app"), key = s.phase + s.q;
-  if (s.phase === "question") {
-    if (key !== lastKey) { // build the form once so typing isn't wiped; only the arena refreshes
+  const s = state, a = $("app"), my = s.turn === me.teamId, key = s.phase + s.q + ":" + s.turnN + (my ? "m" : "");
+  if (s.phase === "question" && my) {
+    if (key !== lastKey) { // build the form once per turn so typing isn't wiped; only the arena refreshes
       lastKey = key;
-      a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="panel"><small>Category ${s.q + 1}</small><div class="prompt">${esc(s.prompt)}</div></div>
-        <div id="ar"></div><div class="timer" id="t"></div>
-        <div class="card"><input id="a" maxlength="80" placeholder="type your answer…" autocomplete="off">
-        <button onclick="submit()">Lock it in</button><p class="mute" id="lock"></p></div>`;
+      a.innerHTML = `${head(s)}<div class="turnline mine">Your turn!</div><div id="ar"></div><div class="timer" id="t"></div>${ticker(s)}
+        <div class="card"><input id="a" maxlength="80" placeholder="name an answer…" autocomplete="off" onkeydown="if(event.key==='Enter')submit()">
+        <button id="go" onclick="submit()">Lock it in</button><p class="err" id="lock"></p></div>${usedList(s)}`;
+      $("a").focus();
     }
     $("ar").innerHTML = arena(s, me.teamId);
     return;
@@ -50,13 +53,16 @@ function render() {
   lastKey = key;
   if (s.phase === "lobby") {
     a.innerHTML = `${arena(s, me.teamId)}<div class="card"><p>You’re in as <b>${esc(me.name)}</b>.</p><p class="mute">Waiting for the host to start.</p></div>`;
+  } else if (s.phase === "question") {
+    const out = mine().lives <= 0;
+    a.innerHTML = `${head(s)}<div class="turnline">${esc(teamName(s, s.turn))}’s turn</div>${arena(s, me.teamId)}<div class="timer" id="t"></div>
+      ${out ? '<p class="mute">You’re out. Watch the rest!</p>' : livesLine(s)}${ticker(s)}${usedList(s)}`;
   } else if (s.phase === "reveal") {
-    const r = s.results.find(x => x.teamId === me.teamId) || { label: "No answer", points: 0, text: "" };
-    a.innerHTML = `<div class="panel"><small>Category ${s.q + 1}</small><div class="prompt">${esc(s.prompt)}</div></div>${arena(s, me.teamId)}
-      <div class="card"><p class="mute">${r.text ? "You said: " + esc(r.text) : "No answer from you"}</p>
-      <p><span class="badge ${r.tier ? "t-" + r.tier : ""}">${esc(r.label)}</span></p><div class="depth">+${r.points}</div></div><p class="mute">Waiting for the next question.</p>`;
+    a.innerHTML = `${head(s)}<p class="mute">${endNote(s)}</p>${arena(s, me.teamId)}${livesLine(s)}${ticker(s)}${revealList(s)}<p class="mute">Waiting for the next question.</p>`;
   } else {
-    a.innerHTML = `<div class="prompt">Final scores</div>${arena(s, me.teamId)}`;
+    const top = ranking(s), w = top[0];
+    a.innerHTML = `<div class="prompt">${w && w.lives > 0 ? (w.id === me.teamId ? "You win!" : esc(w.name) + " wins!") : "Everyone's out!"}</div>${arena(s, me.teamId)}
+      <div class="card">${top.map((t, i) => `<div class="row"><span>${i + 1}. ${t.id === me.teamId ? "<b>" + esc(t.name) + "</b>" : esc(t.name)} <span class="lv">${hearts(t.lives, s.maxLives)}</span></span><b>${t.score}</b></div>`).join("")}</div>`;
   }
 }
 setInterval(() => tickPuffer(state, skew), 100);

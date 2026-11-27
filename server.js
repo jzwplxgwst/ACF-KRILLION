@@ -1,7 +1,7 @@
-// Deep Dive: a join-code trivia game with rarity scoring. No dependencies: run `node server.js`.
+// Krillion Puffer Party: a join-code, turn-based hot-potato trivia game with rarity scoring and lives. No dependencies: run `node server.js`.
 const http = require("http"), fs = require("fs"), path = require("path"), os = require("os"), crypto = require("crypto");
 let PORT = Number(process.env.PORT) || 80; // port 80 gives a short join link; falls back to 3000 if 80 is busy
-const MAX_TEAMS = 6, ANSWER_SECONDS = 25;
+const MAX_TEAMS = 6, TURN_SECONDS = 15, START_LIVES = 3; // each player gets TURN_SECONDS to name an unused answer
 const PUB = path.join(__dirname, "public");
 const load = () => JSON.parse(fs.readFileSync(path.join(__dirname, "questions.json"), "utf8")); // re-read for each new room
 const rooms = new Map();
@@ -33,31 +33,63 @@ function newCode() {
   return s;
 }
 function view(r) {
+  const inQ = r.phase === "question" || r.phase === "reveal", q = inQ ? r.data.questions[r.q] : null;
   return {
     now: Date.now(), code: r.code, phase: r.phase, q: r.q, total: r.data.questions.length, tiers: r.data.tiers,
-    prompt: r.phase === "question" || r.phase === "reveal" ? r.data.questions[r.q].prompt : null,
-    endsAt: r.endsAt, results: r.results,
-    teams: [...r.teams.values()].map(t => ({ id: t.id, name: t.name, score: t.score, answered: r.answers.has(t.id) })),
+    prompt: q ? q.prompt : null, endsAt: r.endsAt, turnMs: TURN_SECONDS * 1000, turn: r.turn, turnN: r.turnN,
+    maxLives: START_LIVES, left: q ? q.answers.length - r.used.length : 0,
+    used: r.used.map(u => u.pub), last: r.last, results: r.results, endReason: r.endReason,
+    teams: [...r.teams.values()].map(t => ({ id: t.id, name: t.name, score: t.score, lives: t.lives, out: t.out })),
   };
 }
 function push(r) { const m = `data: ${JSON.stringify(view(r))}\n\n`; for (const c of r.clients) c.write(m); }
-function startQuestion(r) {
-  r.phase = "question"; r.answers = new Map(); r.results = []; r.endsAt = Date.now() + ANSWER_SECONDS * 1000;
-  clearTimeout(r.timer); r.timer = setTimeout(() => reveal(r), ANSWER_SECONDS * 1000 + 300);
+
+const alive = r => [...r.teams.values()].filter(t => t.lives > 0);
+// next living player after `fromId` in join order (null = start from the first seat)
+function nextAlive(r, fromId) {
+  const ts = [...r.teams.values()], n = ts.length, start = fromId ? ts.findIndex(t => t.id === fromId) : -1;
+  for (let i = 1; i <= n; i++) { const t = ts[(start + i + n) % n]; if (t.lives > 0) return t; }
+  return null;
+}
+function startTurn(r) {
+  r.turnN++; r.endsAt = Date.now() + TURN_SECONDS * 1000;
+  clearTimeout(r.timer); r.timer = setTimeout(() => timeout(r), TURN_SECONDS * 1000 + 300); // small grace for network lag
   push(r);
 }
-function reveal(r) {
+function startQuestion(r) {
+  r.phase = "question"; r.used = []; r.results = []; r.last = null; r.endReason = null;
+  const cur = r.teams.get(r.turn);
+  if (!cur || cur.lives <= 0) r.turn = nextAlive(r, null).id; // otherwise the rotation just carries on
+  startTurn(r);
+}
+function reveal(r, reason = "skip") { // question over (every answer found, or host skipped): nobody loses a life
   if (r.phase !== "question") return;
   clearTimeout(r.timer);
   const q = r.data.questions[r.q];
-  r.results = [...r.teams.values()].map(t => {
-    const text = r.answers.get(t.id) || "";
-    const a = findAnswer(q, text), tier = a ? a.tier : null;
-    const points = tier ? r.data.tiers[tier].points : 0;
-    t.score += points;
-    return { teamId: t.id, name: t.name, text, tier, points, label: tier ? r.data.tiers[tier].label : text ? "Not on the list" : "No answer" };
-  }).sort((x, y) => y.points - x.points);
-  r.phase = "reveal"; r.endsAt = 0; push(r);
+  r.results = q.answers.map((a, i) => {
+    const u = r.used.find(u => u.idx === i), tier = r.data.tiers[a.tier];
+    return { text: a.text, tier: a.tier, label: tier.label, points: tier.points, by: u ? u.by : null };
+  });
+  r.endReason = reason; r.phase = "reveal"; r.endsAt = 0; push(r);
+}
+function finish(r) { clearTimeout(r.timer); r.phase = "final"; r.endsAt = 0; push(r); }
+// last player standing wins (with a single player, the game runs until they are out)
+function checkOver(r) {
+  const n = alive(r).length;
+  if (n === 0 || (r.startN > 1 && n === 1)) { finish(r); return true; }
+  return false;
+}
+function advance(r) { r.turn = nextAlive(r, r.turn).id; startTurn(r); }
+function timeout(r) {
+  if (r.phase !== "question") return;
+  const t = r.teams.get(r.turn);
+  t.lives--;
+  if (t.lives <= 0) t.out = ++r.outN;
+  r.last = { teamId: t.id, name: t.name, kind: "timeout", text: "", label: t.lives > 0 ? "Out of time" : "Eliminated", points: 0, tier: null };
+  if (checkOver(r)) return;
+  // a life was lost with more than half the answers already used: the question ends, next player opens the next one
+  if (r.used.length * 2 > r.data.questions[r.q].answers.length) { r.turn = nextAlive(r, r.turn).id; return reveal(r, "half"); }
+  advance(r);
 }
 
 // ---- http ----
@@ -85,7 +117,7 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === "/api/create") {
       let data; try { data = load(); } catch (e) { return send(res, 500, { error: "questions.json is invalid: " + e.message }); }
       const r = { code: newCode(), hostKey: crypto.randomBytes(8).toString("hex"), data, phase: "lobby", q: -1,
-        teams: new Map(), answers: new Map(), results: [], endsAt: 0, clients: new Set(), timer: null };
+        teams: new Map(), used: [], results: [], turn: null, turnN: 0, last: null, endReason: null, outN: 0, startN: 0, endsAt: 0, clients: new Set(), timer: null };
       rooms.set(r.code, r);
       return send(res, 200, { code: r.code, hostKey: r.hostKey, urls: lanUrls() });
     }
@@ -98,7 +130,7 @@ const server = http.createServer(async (req, res) => {
       if (!t) {
         if (r.phase !== "lobby") return send(res, 400, { error: "That game already started." });
         if (r.teams.size >= MAX_TEAMS) return send(res, 400, { error: `This room is full (${MAX_TEAMS} teams).` });
-        t = { id: crypto.randomBytes(4).toString("hex"), name, score: 0 };
+        t = { id: crypto.randomBytes(4).toString("hex"), name, score: 0, lives: START_LIVES, out: 0 };
         r.teams.set(t.id, t); push(r);
       }
       return send(res, 200, { code: r.code, teamId: t.id, name: t.name });
@@ -106,12 +138,22 @@ const server = http.createServer(async (req, res) => {
     if (u.pathname === "/api/answer") {
       const t = r.teams.get(b.teamId), text = String(b.text || "").trim().slice(0, 80);
       if (!t || r.phase !== "question" || !text) return send(res, 400, { error: "Answers are closed." });
-      r.answers.set(t.id, text); send(res, 200, { ok: true });
-      return r.answers.size === r.teams.size ? reveal(r) : push(r);
+      if (r.turn !== t.id) return send(res, 400, { error: "It's not your turn." });
+      const q = r.data.questions[r.q], hit = findAnswer(q, text);
+      if (!hit) return send(res, 400, { error: "Not on the list. Try another!" });
+      const idx = q.answers.indexOf(hit);
+      if (r.used.some(u => u.idx === idx)) return send(res, 400, { error: "Already used. Try another!" });
+      const tier = r.data.tiers[hit.tier];
+      t.score += tier.points;
+      r.used.push({ idx, by: t.id, pub: { text: hit.text, by: t.name, tier: hit.tier, label: tier.label, points: tier.points } });
+      r.last = { teamId: t.id, name: t.name, kind: "hit", text: hit.text, tier: hit.tier, label: tier.label, points: tier.points };
+      send(res, 200, { ok: true });
+      if (r.used.length >= q.answers.length) { r.turn = nextAlive(r, r.turn).id; return reveal(r, "all"); } // all answers gone: next question starts with the next player, lives kept
+      return advance(r);
     }
     if (u.pathname === "/api/host") {
       if (b.hostKey !== r.hostKey) return send(res, 403, { error: "Not the host." });
-      if (b.action === "start" && r.phase === "lobby" && r.teams.size) { r.q = 0; startQuestion(r); }
+      if (b.action === "start" && r.phase === "lobby" && r.teams.size) { r.q = 0; r.startN = r.teams.size; startQuestion(r); }
       else if (b.action === "reveal") reveal(r);
       else if (b.action === "next" && r.phase === "reveal") {
         if (r.q + 1 < r.data.questions.length) { r.q++; startQuestion(r); } else { r.phase = "final"; push(r); }
