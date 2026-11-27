@@ -1,0 +1,44 @@
+{
+  "tiers": {
+    "plankton": { "label": "Plankton", "points": 10 },
+    "schooler": { "label": "Schooler", "points": 25 },
+    "rare": { "label": "Rare", "points": 50 },
+    "deepcut": { "label": "Deep Cut", "points": 75 },
+    "krillion": { "label": "One in a Krillion", "points": 100 }
+  },
+  "questions": [
+    {
+      "prompt": "Name a book of the Bible",
+      "answers": [
+        { "text": "John", "tier": "plankton" },
+        { "text": "Genesis", "tier": "plankton" },
+        { "text": "Psalms", "aliases": ["Psalm"], "tier": "schooler" },
+        { "text": "Ruth", "tier": "schooler" },
+        { "text": "Philemon", "tier": "rare" },
+        { "text": "Habakkuk", "tier": "deepcut" },
+        { "text": "Obadiah", "tier": "deepcut" },
+        { "text": "3 John", "aliases": ["third john"], "tier": "krillion" }
+      ]
+    },
+    {
+      "prompt": "Name a building on Western’s campus",
+      "answers": [
+        { "text": "UCC", "aliases": ["University Community Centre", "University Community Center"], "tier": "plankton" },
+        { "text": "Weldon Library", "aliases": ["Weldon"], "tier": "plankton" },
+        { "text": "Alumni Hall", "tier": "schooler" },
+        { "text": "Talbot College", "aliases": ["Talbot"], "tier": "rare" },
+        { "text": "Somerville House", "aliases": ["Somerville"], "tier": "deepcut" }
+      ]
+    },
+    {
+      "prompt": "Name a food you’d find at a potluck",
+      "answers": [
+        { "text": "Rice", "tier": "plankton" },
+        { "text": "Dumplings", "aliases": ["Dumpling"], "tier": "schooler" },
+        { "text": "Kimchi", "tier": "schooler" },
+        { "text": "Japchae", "tier": "rare" },
+        { "text": "Lumpia", "tier": "deepcut" }
+      ]
+    }
+  ]
+}

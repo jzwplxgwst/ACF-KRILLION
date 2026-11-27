@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ACF Krillion</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head>
+<body><main><div class="brand">ACF Krillion</div><div id="app"></div></main>
+<script>
+let me = null, state = null, skew = 0, lastKey = "", es = null;
+try { me = JSON.parse(localStorage.getItem("dd-me") || "null"); } catch {}
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const post = (p, b) => fetch(p, { method: "POST", body: JSON.stringify(b) }).then(r => r.json());
+
+function joinForm(err = "") {
+  $("app").innerHTML = `<div class="card"><p>Enter the code on the big screen</p>
+    <input id="c" placeholder="Room code" maxlength="4" autocapitalize="characters" autocomplete="off" value="${esc(me ? me.code : "")}">
+    <input id="n" placeholder="Team name" maxlength="20" autocomplete="off" value="${esc(me ? me.name : "")}">
+    <div class="err" id="err">${esc(err)}</div><button onclick="join()">Join game</button></div>`;
+}
+async function join() {
+  const r = await post("/api/join", { code: $("c").value.trim(), name: $("n").value.trim() });
+  if (r.error) { $("err").textContent = r.error; return; }
+  me = r; try { localStorage.setItem("dd-me", JSON.stringify(me)); } catch {}
+  connect();
+}
+function connect() {
+  if (es) es.close();
+  es = new EventSource("/api/events?code=" + me.code);
+  es.onmessage = e => { state = JSON.parse(e.data); skew = state.now - Date.now(); render(); };
+}
+async function submit() {
+  const text = $("a").value.trim(); if (!text) return;
+  const r = await post("/api/answer", { code: me.code, teamId: me.teamId, text });
+  $("lock").textContent = r.error ? r.error : `Locked in: ${text}. You can change it until time is up.`;
+}
+const board = s => [...s.teams].sort((a, b) => b.score - a.score)
+  .map(t => `<div class="row"><span>${t.id === me.teamId ? "<b>" + esc(t.name) + "</b>" : esc(t.name)}</span><b>${t.score}</b></div>`).join("");
+
+function render() {
+  const s = state, a = $("app"), key = s.phase + s.q;
+  if (s.phase === "question") {
+    if (key === lastKey) return; // keep what the team is typing
+    lastKey = key;
+    a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="prompt">${esc(s.prompt)}</div><div class="timer" id="t"></div>
+      <div class="card"><input id="a" maxlength="80" placeholder="Your answer" autocomplete="off">
+      <button onclick="submit()">Lock in answer</button><p class="mute" id="lock"></p></div>`;
+    return;
+  }
+  lastKey = key;
+  if (s.phase === "lobby") {
+    a.innerHTML = `<div class="card"><p>You’re in as <b>${esc(me.name)}</b>.</p><p class="mute">Waiting for the host to start.</p>
+      <div class="teams">${s.teams.map(t => `<span class="chip">${esc(t.name)}</span>`).join("")}</div></div>`;
+  } else if (s.phase === "reveal") {
+    const r = s.results.find(x => x.teamId === me.teamId) || { label: "No answer", points: 0, text: "" };
+    a.innerHTML = `<div class="prompt">${esc(s.prompt)}</div>
+      <div class="card"><p class="mute">${r.text ? "You said: " + esc(r.text) : "No answer from you"}</p>
+      <p><span class="badge ${r.tier ? "t-" + r.tier : ""}">${esc(r.label)}</span></p><div class="prompt">+${r.points}</div></div>
+      <div class="card">${board(s)}</div><p class="mute">Waiting for the next question.</p>`;
+  } else {
+    a.innerHTML = `<div class="prompt">Final scores</div><div class="card">${board(s)}</div>`;
+  }
+}
+setInterval(() => {
+  const t = $("t");
+  if (t && state && state.phase === "question") t.textContent = Math.max(0, Math.ceil((state.endsAt - (Date.now() + skew)) / 1000));
+}, 250);
+
+if (me) post("/api/join", { code: me.code, name: me.name }).then(r => { if (r.error) joinForm(); else { me = r; connect(); } }); // rejoin after a locked phone
+else joinForm();
+</script></body></html>

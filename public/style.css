@@ -1,0 +1,29 @@
+:root{--abyss:#03121c;--trench:#0b2e42;--shelf:#124560;--ink:#e9f7fb;--mute:#8db4c4;--glow:#44e3cf;
+--plankton:#9aa5ab;--schooler:#59b0ee;--rare:#ff5c5c;--deepcut:#ab87f0;--krillion:#ffb020}
+*{box-sizing:border-box}
+html{background:var(--abyss)}
+body{margin:0;min-height:100vh;color:var(--ink);font:18px/1.45 "Avenir Next","Trebuchet MS",system-ui,sans-serif;
+background:linear-gradient(180deg,#0f5878 0,var(--trench) 30%,var(--abyss) 100%) fixed;
+padding:max(18px,env(safe-area-inset-top)) 18px max(24px,env(safe-area-inset-bottom))}
+main{max-width:880px;margin:0 auto;text-align:center}
+.brand{color:var(--mute);margin:6px 0 18px;font-weight:600}
+.card{background:rgba(3,18,28,.55);border:1px solid var(--shelf);border-radius:18px;padding:18px;margin:14px 0}
+.code{font-size:clamp(72px,18vw,150px);font-weight:800;letter-spacing:.14em;color:var(--glow);line-height:1;margin:8px 0 8px .14em;text-shadow:0 0 40px rgba(68,227,207,.35)}
+.prompt{font-size:clamp(26px,5.4vw,48px);font-weight:700;line-height:1.15;margin:12px 0 18px}
+.timer{font-size:clamp(48px,10vw,88px);font-weight:800;color:var(--glow)}
+.mute{color:var(--mute)}
+button,input{font:inherit;border:0;border-radius:12px;padding:14px 18px}
+input{width:100%;background:#f3fbfd;color:#03121c;margin:6px 0}
+input:focus-visible,button:focus-visible{outline:3px solid var(--glow);outline-offset:2px}
+button{background:var(--glow);color:#03121c;font-weight:700;cursor:pointer;min-width:160px}
+button:disabled{opacity:.4;cursor:default}
+.teams{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.chip{background:var(--shelf);border-radius:999px;padding:8px 18px;font-weight:600}
+.chip.done{background:var(--glow);color:#03121c}
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left;padding:11px 2px;border-bottom:1px solid var(--shelf)}
+.row:last-child{border-bottom:0}
+.badge{display:inline-block;border-radius:999px;padding:2px 12px;font-size:.8em;font-weight:700;color:#03121c;background:var(--mute);white-space:nowrap}
+.t-plankton{background:var(--plankton)}.t-schooler{background:var(--schooler)}.t-rare{background:var(--rare)}
+.t-deepcut{background:var(--deepcut)}.t-krillion{background:var(--krillion)}
+.err{color:#ffb4b4;min-height:1.5em}
+@media (prefers-reduced-motion:no-preference){.timer{transition:color .3s}}
