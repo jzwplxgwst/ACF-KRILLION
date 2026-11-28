@@ -1,43 +1,42 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ACF Krillion · Host</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head>
-<body><main><div class="brand">ACF Krillion</div><div id="app" class="mute">Starting…</div></main>
-<script src="/puffer.js"></script>
+<title>Krillion · Puffer Party</title><link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"><script src="/puffer.js"></script></head>
+<body><main><div class="brand">ACF KRILLION</div><div class="tag">Puffer Party</div><div id="app" class="mute">Starting…</div></main>
 <script>
 let room, state, skew = 0, joinUrl = location.origin;
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const post = (p, b) => fetch(p, { method: "POST", body: JSON.stringify(b) }).then(r => r.json());
 const act = a => post("/api/host", { code: room.code, hostKey: room.hostKey, action: a });
+
 (async function init() {
   room = await post("/api/create", {});
   if (!room.code) { $("app").textContent = room.error || "Could not start a room."; return; }
-  joinUrl = (room.urls[0] || location.origin).replace("http://", "");
-  const es = new EventSource("/api/events?code=" + room.code);
-  es.onmessage = e => { state = JSON.parse(e.data); skew = state.now - Date.now(); render(); };
+  joinUrl = ["localhost", "127.0.0.1"].includes(location.hostname) ? (room.urls[0] || location.origin).replace("http://", "") : location.host;
+  subscribe(room.code, st => { state = st; render(); });
 })();
+
 const tierKey = s => Object.entries(s.tiers).map(([id, t]) => `<span class="badge t-${id}">${esc(t.label)} ${t.points}</span>`).join(" ");
-function seat(t, i, n, s) {
-  const g = -Math.PI / 2 + i * 2 * Math.PI / n, cls = t.id === s.holder ? "hold" : !t.alive ? "out" : "";
-  const note = t.id === s.holder ? "has the puffer" : !t.alive ? "popped" : t.id === s.next ? "up next" : "";
-  return `<div class="seat ${cls}" style="left:${50 + 41 * Math.cos(g)}%;top:${50 + 41 * Math.sin(g)}%"><b>${esc(t.name)}</b><div class="mute">${t.score}${note ? " · " + note : ""}</div></div>`;
-}
+const head = s => `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="panel"><small>Category ${s.q + 1}</small><div class="prompt">${esc(s.prompt)}</div></div>`;
+
 function render() {
   const s = state, a = $("app");
   if (s.phase === "lobby") {
     a.innerHTML = `<p>Open <b>${esc(joinUrl)}</b> on your phone and enter</p><div class="code">${s.code}</div>
-      <div class="card"><div class="teams">${s.teams.map(t => `<span class="chip">${esc(t.name)}</span>`).join("") || "<span class='mute'>No teams yet</span>"}</div>
-      <p class="mute">${s.teams.length} of 6 teams</p></div>
-      <p class="mute">Hot potato: the puffer passes team to team. Answer before it pops. Rarer answers score more.</p><p>${tierKey(s)}</p>
-      <button onclick="act('start')" ${s.teams.length ? "" : "disabled"}>Start game</button>`;
+      ${arena(s)}<p class="mute">${s.teams.length} of 6 seats taken</p>
+      <p class="mute">Take turns naming answers. Miss your ${s.turnMs / 1000} seconds and lose a life. ${s.maxLives} lives each. Highest score wins!</p><p>${tierKey(s)}</p>
+      <button onclick="act('start')" ${s.teams.length ? "" : "disabled"}>Start the party</button>`;
   } else if (s.phase === "question") {
-    a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="prompt">${esc(s.prompt)}</div>
-      <div class="ring"><div class="pbox">${puffer()}<div class="ptime" id="t"></div></div>${s.teams.map((t, i) => seat(t, i, s.teams.length, s)).join("")}</div>
-      <div class="card">${s.log.slice(-3).reverse().map(logRow).join("") || "<span class='mute'>Waiting for the first answer…</span>"}</div>
-      <button onclick="act('reveal')">End question</button>`;
-    tick(s, skew);
+    const who = teamName(s, s.turn);
+    a.innerHTML = `${head(s)}${hiddenNote(s)}<div class="turnline">${esc(who)}, you're up!</div>${arena(s)}<div class="timer" id="t"></div>${ticker(s)}${usedList(s)}
+      <button onclick="act('reveal')">Skip question</button>`;
   } else if (s.phase === "reveal") {
-    a.innerHTML = `<p class="mute">Question ${s.q + 1} of ${s.total}</p><div class="prompt">${esc(s.prompt)}</div>
-      <div class="card">${s.log.map(logRow).join("")}</div><div class="card"><div class="mute">Scores</div>${board(s)}</div>
-      <button onclick="act('next')">${s.q + 1 >= s.total ? "Final scores" : "Next question"}</button>`;
-  } else a.innerHTML = `<div class="prompt">Final scores</div><div class="card">${board(s)}</div>`;
+    a.innerHTML = `${head(s)}${hiddenNote(s)}<p class="mute">${endNote(s)}</p>${breakLine(s)}${arena(s)}${ticker(s)}${revealList(s)}
+      <button onclick="act('next')">Skip wait</button>`;
+  } else {
+    const f = finalInfo(s, skew);
+    a.innerHTML = `<div class="prompt">${finalTitle(s, f)}</div>${arena(f.masked)}<div class="card final">${finalBoard(s, f)}</div>`;
+  }
 }
-setInterval(() => tick(state, skew), 100);
+setInterval(() => tickPuffer(state, skew), 100);
 </script></body></html>
